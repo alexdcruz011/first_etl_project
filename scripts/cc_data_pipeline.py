@@ -6,19 +6,26 @@ import os
 import pandera.pandas as pa
 from pandera import Column, DataFrameSchema
 from io import StringIO
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.cloud import storage
+from google.oauth2.credentials import Credentials 
+from google.auth.transport.requests import Request
 
 
 def extract_cc_data(api_key: str):
+    """Extracts credit card data from Mockaroo API using the provided API key
+    Returns a Pandas Dataframe
+    """
     params = { "key" : api_key}
     headers = {
             'Content-Type': 'application/json',
-            'Authorization': f'Bearer {params.get("key")}' # If your Mockaroo API requires authentication
+            'Authorization': f'Bearer {params.get("key")}'
     }
 
     response = requests.get('https://my.api.mockaroo.com/sample_cc_data_alex.json',headers=headers, params=params)
 
     if response.status_code != 200:
-        print(f"API Extraction failed status code {response.status_code}")
+        raise RuntimeError(f"API Extraction failed status code {response.status_code}")
 
     json_string = json.dumps(response.json())
     json_object = StringIO(json_string)
@@ -55,15 +62,45 @@ def transform_cc_data(initial_df):
     return df
 
 
-def load_cc_data(df):
-    dest_path = 'output_cc_data.csv'
+def load_cc_data(df, dest_path):
     df.to_csv(dest_path , index = False)
     print(f'Load completed. Find {dest_path}')
 
+def get_gcp_creds():
+    scopes=['https://www.googleapis.com/auth/devstorage.read_write']
+
+    creds = None
+    if os.path.exists("token_main.json"):
+        creds = Credentials.from_authorized_user_file("token_main.json", scopes)
+    # If there are no (valid) credentials available, let the user log in.
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(
+                'client_secret.json', scopes
+            )
+            creds = flow.run_local_server(port=0)
+        # Save the credentials for the next run
+        with open("token_main.json", "w") as token:
+            token.write(creds.to_json())
+    return creds
+
+def upload_to_gcs(file, creds, project, bucket_name, blob_name):
+    client = storage.Client(project=project, credentials=creds)
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+    blob.upload_from_filename(file)
 
 if __name__ == '__main__':
     load_dotenv()
     api_key = os.getenv('API_KEY')
+    project = os.getenv('PROJECT_NAME')
+    bucket_name = os.getenv('BUCKET_NAME')
+    dest_blob_path = os.getenv('BLOB_PATH')
+    dest_path = 'output_cc_data.csv'
     initial_df=extract_cc_data(api_key)
     final = transform_cc_data(initial_df)
-    load_cc_data(final)
+    source_file = load_cc_data(final)
+    creds = get_gcp_creds()
+    upload_to_gcs(dest_path, creds, project, bucket_name, dest_blob_path)
