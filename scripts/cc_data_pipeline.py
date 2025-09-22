@@ -101,6 +101,6 @@ if __name__ == '__main__':
     dest_path = 'output_cc_data.csv'
     initial_df=extract_cc_data(api_key)
     final = transform_cc_data(initial_df)
-    source_file = load_cc_data(final)
+    source_file = load_cc_data(final,dest_path)
     creds = get_gcp_creds()
-    upload_to_gcs(dest_path, creds, project, bucket_name, dest_blob_path)
+    upload_to_gcs(file=dest_path, creds=creds, project=project, bucket_name=bucket_name, blob_name=destination_blob_name)
