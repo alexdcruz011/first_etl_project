@@ -15,6 +15,10 @@ airflow.db
 simple_auth_manager_passwords.json.generated
 client_secret.json
 token_main.json
+simple_auth_manager_passwords.json
+output.txt
+airflow/
+.vscode/
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
