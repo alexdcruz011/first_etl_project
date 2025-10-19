@@ -10,6 +10,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.cloud import storage
 from google.oauth2.credentials import Credentials 
 from google.auth.transport.requests import Request
+import google.auth
+import gcsfs
 
 
 def extract_cc_data(api_key: str):
@@ -29,8 +31,8 @@ def extract_cc_data(api_key: str):
 
     json_string = json.dumps(response.json())
     json_object = StringIO(json_string)
-
-    return pd.read_json(json_object)
+    data = pd.read_json(json_object)
+    data.to_csv('raw_output_cc_data.csv',index = True)
 
 
 def transform_cc_data(initial_df):
@@ -92,15 +94,28 @@ def upload_to_gcs(file, creds, project, bucket_name, blob_name):
     blob = bucket.blob(blob_name)
     blob.upload_from_filename(file)
 
+def get_gcsfs():
+    credentials, project = google.auth.default()
+    return gcsfs.GCSFileSystem(token=credentials)
+
+def extract_gcsfs(fs):
+    with fs.open('gs://raw_data_alex_portfolio/raw_data/raw_output_cc_alex.csv') as f:
+        df = pd.read_csv(f)
+    return df
+
 if __name__ == '__main__':
     load_dotenv()
     api_key = os.getenv('API_KEY')
     project = os.getenv('PROJECT_NAME')
     bucket_name = os.getenv('BUCKET_NAME')
     dest_blob_path = os.getenv('BLOB_PATH')
-    dest_path = 'output_cc_data.csv'
-    initial_df=extract_cc_data(api_key)
-    final = transform_cc_data(initial_df)
-    source_file = load_cc_data(final,dest_path)
+    dest_path = 'raw_output_cc_data.csv'
+    extract_cc_data(api_key)
     creds = get_gcp_creds()
-    upload_to_gcs(file=dest_path, creds=creds, project=project, bucket_name=bucket_name, blob_name=destination_blob_name)
+    upload_to_gcs(file=dest_path, creds=creds, project=project, bucket_name=bucket_name, blob_name='raw_data/raw_output_cc_alex.csv')
+    fs = get_gcsfs()
+    initial_df = extract_gcsfs(fs)
+    print(initial_df)
+    final = transform_cc_data(initial_df)
+    upload_to_gcs(file='output_cc_data.csv', creds=creds, project=project, bucket_name=bucket_name, blob_name=dest_blob_path)
+    print('All Done!')
