@@ -1,44 +1,57 @@
+import sys
+sys.path.append('/home/alexdcruz011/first_etl_project')
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.standard.sensors.filesystem import FileSensor
 from airflow.providers.standard.operators.python import PythonOperator
 from dotenv import load_dotenv
-#from scripts.cc_data_pipeline import extract_cc_data
+from scripts.cc_data_pipeline import extract_cc_data
 import os
-import sys
-import requests
-import json
-from io import StringIO
 import pandas as pd
+from airflow.providers.google.cloud.transfers.local_to_gcs import LocalFilesystemToGCSOperator
+from pandera import Column, DataFrameSchema
+import pandera as pa
 
 def say_api(api_key):
     print(f'API Key: {api_key}')
+    print(f'Current Directory: {DAG_DIR}')
+    print(f'ENV PATH: {ENV_PATH}')
 
 def test_function():
     print("File exists")
 
-def extract_cc_data(api_key: str):
-    print(api_key)
-    """Extracts credit card data from Mockaroo API using the provided API key
-    Returns a Pandas Dataframe
-    """
-    params = { "key" : api_key}
-    headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {params.get("key")}'
-    }
+def transform_mockaroo_data():
+    schema = DataFrameSchema({
+        'first_name' : Column(str),
+        'last_name' : Column(str),
+        'email' : Column(str),
+        'gender' : Column(str),
+        'credit_card_number' : Column(str),
+        'mobile_number' : Column(str,nullable=True),
+        'mailing_address' : Column(str,nullable=True),
+        'ssn' : Column(str,nullable=True),
+        'date_of_birth' : Column(pa.DateTime,nullable=True)
+    })
 
-    response = requests.get('https://my.api.mockaroo.com/sample_cc_data_alex.json',headers=headers, params=params)
+    df = pd.read_csv(file_path)
+    df['first_name'] = df['first_name'].str.capitalize()
+    df['last_name'] = df['last_name'].str.capitalize()
+    df['email'] = df['email'].fillna('no_email@email.com')
+    df['remaining_balance'] = df['remaining_balance'].astype(float)
+    df['ssn'] = df['ssn'].str[-4:]
+    df['date_of_birth'] = pd.to_datetime(df['date_of_birth'])
+    df['gender'] = df['gender'].fillna('Not Specified')
+    df['credit_card_number'] = df['credit_card_number'].astype(str)
 
-    if response.status_code != 200:
-        raise RuntimeError(f"API Extraction failed status code {response.status_code}")
+    df.rename(columns={'remaining_balance':'credit_limit'},inplace=True)
+    schema.validate(df)
+    df.to_csv('scripts/output_cc_data.csv')
 
-    json_string = json.dumps(response.json())
-    json_object = StringIO(json_string)
-    data = pd.read_json(json_object)
-    data.to_csv('raw_output_cc_data.csv',index = True)
 
-load_dotenv(dotenv_path='/home/alexdcruz011/first_etl_project/scripts/.env')
+DAG_DIR = os.path.dirname(os.path.abspath(__file__))
+PARENT_DIR = os.path.dirname(DAG_DIR)
+ENV_PATH = os.path.join(PARENT_DIR,'scripts','.env')
+load_dotenv(dotenv_path=ENV_PATH)
 
 file_path = '/home/alexdcruz011/first_etl_project/scripts/raw_output_cc_data.csv'
 
@@ -68,17 +81,28 @@ with DAG(
         op_kwargs= {'api_key': os.getenv('API_KEY')}
     )
 
-    file_check = FileSensor(
-        task_id = 'sense_the_file',
-        filepath=file_path,
-        poke_interval=30,
-        timeout=600,
-        mode='poke'
+    upload_raw_to_gs = LocalFilesystemToGCSOperator(
+        task_id='upload_raw_data',
+        src=os.path.join(PARENT_DIR,'scripts','raw_output_cc_data.csv'),
+        dst='raw_data/raw_output_cc_alex.csv',
+        bucket='raw_data_alex_portfolio',
+        mime_type='text/csv',
+        gcp_conn_id='google_cloud_default'
     )
 
-    print_it = PythonOperator(
-        task_id = 'print_output',
-        python_callable=test_function
+    transform_data = PythonOperator(
+        task_id='transform_data',
+        python_callable=transform_mockaroo_data
     )
 
-    what_api >> extract_mockaroo >> file_check >> print_it
+    upload_final_to_gcs = LocalFilesystemToGCSOperator(
+        task_id='upload_final_data',
+        src=os.path.join(PARENT_DIR,'scripts','output_cc_data.csv'),
+        dst='raw_data/output_cc_alex.csv',
+        bucket='raw_data_alex_portfolio',
+        mime_type='text/csv',
+        gcp_conn_id='google_cloud_default'
+    )
+
+
+    what_api >> extract_mockaroo >> upload_raw_to_gs >> transform_data >> upload_final_to_gcs

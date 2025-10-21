@@ -19,6 +19,8 @@ simple_auth_manager_passwords.json
 output.txt
 airflow/
 .vscode/
+airflow_credentials.json
+google-cloud-sdk/
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
