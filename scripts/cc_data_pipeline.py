@@ -14,7 +14,7 @@ import google.auth
 import gcsfs
 
 
-def extract_cc_data(api_key: str, gcp_path : str):
+def extract_cc_data(api_key: str):
     """Extracts credit card data from Mockaroo API using the provided API key
     Returns a Pandas Dataframe
     """
@@ -32,11 +32,7 @@ def extract_cc_data(api_key: str, gcp_path : str):
     json_string = json.dumps(response.json())
     json_object = StringIO(json_string)
     data = pd.read_json(json_object)
-    credentials, project = google.auth.default()
-    fs = gcsfs.GCSFileSystem(token=credentials)
-    with fs.open(gcp_path, 'w') as f:
-        data.to_csv(f, index=True)
-
+    data.to_csv('raw_output_cc_data.csv',index = True)
 
 
 def transform_cc_data(initial_df):
@@ -98,9 +94,11 @@ def upload_to_gcs(file, creds, project, bucket_name, blob_name):
     blob = bucket.blob(blob_name)
     blob.upload_from_filename(file)
 
-def extract_gcsfs():
+def get_gcsfs():
     credentials, project = google.auth.default()
-    fs = gcsfs.GCSFileSystem(token=credentials)
+    return gcsfs.GCSFileSystem(token=credentials)
+
+def extract_gcsfs(fs):
     with fs.open('gs://raw_data_alex_portfolio/raw_data/raw_output_cc_alex.csv') as f:
         df = pd.read_csv(f)
     return df
@@ -118,7 +116,8 @@ if __name__ == '__main__':
     extract_cc_data(api_key,raw_gcs_path)
     creds = get_gcp_creds()
     upload_to_gcs(file=raw_path, creds=creds, project=project, bucket_name=bucket_name, blob_name=raw_blob_path)
-    initial_df = extract_gcsfs()
+    fs = get_gcsfs()
+    initial_df = extract_gcsfs(fs)
     print(initial_df)
     final = transform_cc_data(initial_df)
     load_cc_data(final,dest_path)
