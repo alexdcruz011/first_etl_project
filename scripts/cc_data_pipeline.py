@@ -110,11 +110,12 @@ if __name__ == '__main__':
     api_key = os.getenv('API_KEY')
     project = os.getenv('PROJECT_NAME')
     bucket_name = os.getenv('BUCKET_NAME')
+    raw_gcs_path = 'gs://raw_data_alex_portfolio/raw_data/raw_output_cc_alex.csv'
     dest_blob_path = 'raw_data/output_cc_alex.csv'
     raw_blob_path = 'raw_data/raw_output_cc_alex.csv'
     raw_path = 'raw_output_cc_data.csv'
     dest_path = 'output_cc_data.csv'
-    extract_cc_data(api_key)
+    extract_cc_data(api_key,raw_gcs_path)
     creds = get_gcp_creds()
     upload_to_gcs(file=raw_path, creds=creds, project=project, bucket_name=bucket_name, blob_name=raw_blob_path)
     initial_df = extract_gcsfs()
