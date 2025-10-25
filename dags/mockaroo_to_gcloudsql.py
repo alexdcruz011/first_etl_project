@@ -2,25 +2,17 @@ import sys
 sys.path.append('/home/alexdcruz011/first_etl_project')
 from datetime import datetime, timedelta
 from airflow import DAG
+from airflow.providers.standard.sensors.filesystem import FileSensor
 from airflow.providers.standard.operators.python import PythonOperator
-from airflow.providers.google.cloud.transfers.local_to_gcs import LocalFilesystemToGCSOperator
 from dotenv import load_dotenv
 from scripts.cc_data_pipeline import extract_cc_data
 import os
 import pandas as pd
+from airflow.providers.google.cloud.transfers.local_to_gcs import LocalFilesystemToGCSOperator
 from pandera import Column, DataFrameSchema
 import pandera as pa
-import google.auth
-import gcsfs
-
-raw_gcs_path = 'gs://raw_data_alex_portfolio/raw_data/raw_output_cc_alex.csv'
 
 def transform_mockaroo_data():
-    """Function reads Extracts raw_output_cc data from GCS then performs transformation and schema check before saving a new output which will be uploaded to GCS as final data"""
-    credentials, project = google.auth.default()
-    fs = gcsfs.GCSFileSystem(token=credentials)
-    with fs.open(raw_gcs_path) as f:
-        df = pd.read_csv(f)
     schema = DataFrameSchema({
         'first_name' : Column(str),
         'last_name' : Column(str),
@@ -33,6 +25,7 @@ def transform_mockaroo_data():
         'date_of_birth' : Column(pa.DateTime,nullable=True)
     })
 
+    df = pd.read_csv(file_path)
     df['first_name'] = df['first_name'].str.capitalize()
     df['last_name'] = df['last_name'].str.capitalize()
     df['email'] = df['email'].fillna('no_email@email.com')
@@ -44,13 +37,15 @@ def transform_mockaroo_data():
 
     df.rename(columns={'remaining_balance':'credit_limit'},inplace=True)
     schema.validate(df)
-    df.to_csv('scripts/output_cc_data.csv')
+    df.to_csv('scripts/output_cc_data.csv', index= False)
 
 
 DAG_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(DAG_DIR)
 ENV_PATH = os.path.join(PARENT_DIR,'scripts','.env')
 load_dotenv(dotenv_path=ENV_PATH)
+
+file_path = '/home/alexdcruz011/first_etl_project/scripts/raw_output_cc_data.csv'
 
 default_args = {
     'owner': 'Alexander',
@@ -66,21 +61,32 @@ with DAG(
     catchup=False,
     tags=['Cloud Storage','file_sensor']
 ) as dag:
+    
+    what_api = PythonOperator(
+        task_id = 'what_is_my_api', 
+        python_callable=say_api, 
+        op_kwargs= {'api_key': os.getenv('API_KEY')})
 
-    # Calls extract_cc_data from the scripts directory with python file cc_data_pipeline.py
     extract_mockaroo = PythonOperator(
         task_id = 'extract_mockaroo', 
         python_callable=extract_cc_data, 
-        op_kwargs= {'api_key': os.getenv('API_KEY'), 'gcp_path': raw_gcs_path}
+        op_kwargs= {'api_key': os.getenv('API_KEY')}
     )
 
-    # Calls transform_mockaroo_data function defined in code above to extract and transform raw data
+    upload_raw_to_gs = LocalFilesystemToGCSOperator(
+        task_id='upload_raw_data',
+        src=os.path.join(PARENT_DIR,'scripts','raw_output_cc_data.csv'),
+        dst='raw_data/raw_output_cc_alex.csv',
+        bucket='raw_data_alex_portfolio',
+        mime_type='text/csv',
+        gcp_conn_id='google_cloud_default'
+    )
+
     transform_data = PythonOperator(
         task_id='transform_data',
         python_callable=transform_mockaroo_data
     )
 
-    # Uploads output from transform_mockaroo_data to GCS
     upload_final_to_gcs = LocalFilesystemToGCSOperator(
         task_id='upload_final_data',
         src=os.path.join(PARENT_DIR,'scripts','output_cc_data.csv'),
@@ -90,4 +96,5 @@ with DAG(
         gcp_conn_id='google_cloud_default'
     )
 
-    extract_mockaroo >> transform_data >> upload_final_to_gcs
+
+    what_api >> extract_mockaroo >> upload_raw_to_gs >> transform_data >> upload_final_to_gcs
