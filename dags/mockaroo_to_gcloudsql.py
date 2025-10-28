@@ -61,11 +61,6 @@ with DAG(
     catchup=False,
     tags=['Cloud Storage','file_sensor']
 ) as dag:
-    
-    what_api = PythonOperator(
-        task_id = 'what_is_my_api', 
-        python_callable=say_api, 
-        op_kwargs= {'api_key': os.getenv('API_KEY')})
 
     extract_mockaroo = PythonOperator(
         task_id = 'extract_mockaroo', 
@@ -97,4 +92,4 @@ with DAG(
     )
 
 
-    what_api >> extract_mockaroo >> upload_raw_to_gs >> transform_data >> upload_final_to_gcs
+    extract_mockaroo >> upload_raw_to_gs >> transform_data >> upload_final_to_gcs
