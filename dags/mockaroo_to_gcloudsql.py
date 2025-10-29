@@ -91,4 +91,4 @@ with DAG(
     )
 
 
-    extract_mockaroo >> upload_raw_to_gs >> transform_data >> upload_final_to_gcs
+    extract_mockaroo  >> transform_data >> upload_final_to_gcs
