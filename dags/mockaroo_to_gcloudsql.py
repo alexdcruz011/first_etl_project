@@ -61,6 +61,11 @@ with DAG(
     catchup=False,
     tags=['Cloud Storage','file_sensor']
 ) as dag:
+    
+    what_api = PythonOperator(
+        task_id = 'what_is_my_api', 
+        python_callable=say_api, 
+        op_kwargs= {'api_key': os.getenv('API_KEY')})
 
     extract_mockaroo = PythonOperator(
         task_id = 'extract_mockaroo', 
